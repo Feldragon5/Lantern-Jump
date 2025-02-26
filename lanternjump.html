@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Lantern Jump</title>
+		<style>
+			body {
+				margin: 0;
+				overflow: hidden;
+				background: black;
+				color: white;
+				font-family: Arial, sans-serif;
+			}
+			canvas {
+				display: block;
+			}
+			#score {
+				position: absolute;
+				top: 20px;
+				left: 20px;
+				font-size: 30px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="score">Score: 0</div>
+		<canvas id="gameCanvas"></canvas>
+		<script>
+			const canvas = document.getElementById("gameCanvas");
+			const ctx = canvas.getContext("2d");
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+
+			let player, platforms, score, keys, cameraX, passedPlatforms;
+			const maxJumpDistance = 600;
+			const minJumpDistance = 400;
+			const maxHeightChange = 150;
+
+			function randomInt(min, max) {
+				return Math.floor(Math.random() * (max - min + 1)) + min;
+			}
+
+			function generatePlatform(previousX, previousY) {
+				let x = previousX + randomInt(minJumpDistance, maxJumpDistance);
+				let y = randomInt(
+					previousY - maxHeightChange,
+					previousY + maxHeightChange
+				);
+				y = Math.min(Math.max(y, 100), canvas.height - 150);
+
+				return {
+					x,
+					y,
+					width: randomInt(75, 250),
+					height: 10,
+					passed: false,
+					falling: false,
+					fallTimer: null,
+					fallVelocity: 0,
+				};
+			}
+
+			function resetGame() {
+				platforms = [
+					{
+						x: 50,
+						y: canvas.height - 225,
+						width: 200,
+						height: 10,
+						passed: false,
+					},
+				];
+				for (let i = 1; i < 5; i++) {
+					let prev = platforms[i - 1];
+					platforms.push(generatePlatform(prev.x, prev.y));
+				}
+
+				player = {
+					x: 135,
+					y: canvas.height - 260,
+					width: 28,
+					height: 35,
+					dy: 0,
+					gravity: 0.5,
+					jumpPower: 15,
+					speed: 10,
+					onGround: true,
+					jumping: false,
+				};
+
+				score = -1;
+				keys = {};
+				cameraX = 0;
+				passedPlatforms = new Set();
+			}
+
+			window.addEventListener("keydown", (e) => (keys[e.code] = true));
+			window.addEventListener("keyup", (e) => (keys[e.code] = false));
+			window.addEventListener("resize", resizeCanvas);
+
+			function resizeCanvas() {
+				canvas.width = window.innerWidth;
+				canvas.height = window.innerHeight;
+			}
+
+			function drawLighting() {
+				ctx.fillStyle = "black";
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+				let gradient = ctx.createRadialGradient(
+					player.x - cameraX + player.width / 2,
+					player.y + player.height / 2,
+					0,
+					player.x - cameraX + player.width / 2,
+					player.y + player.height / 2,
+					500
+				);
+				gradient.addColorStop(0, "rgba(255, 255, 175, 1)");
+				gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+
+				ctx.globalCompositeOperation = "lighter";
+				ctx.fillStyle = gradient;
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+				ctx.globalCompositeOperation = "source-over";
+			}
+
+			function gameLoop() {
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				drawLighting();
+
+				if (keys["KeyW"] || keys["Space"]) {
+					if (player.onGround) {
+						player.dy = -player.jumpPower;
+						player.onGround = false;
+						player.jumping = true;
+					}
+				} else if (player.jumping && player.dy < 0) {
+					player.dy = 0;
+					player.jumping = false;
+				}
+
+				if (keys["KeyD"]) {
+					player.x += player.speed;
+				}
+				if (keys["KeyA"]) {
+					player.x -= player.speed;
+				}
+
+				player.dy += player.gravity;
+				player.y += player.dy;
+
+				let lastPlatform = null;
+
+				for (let i = platforms.length - 1; i >= 0; i--) {
+					let platform = platforms[i];
+
+					if (
+						platform.x + platform.width < cameraX ||
+						platform.y > canvas.height + 100
+					) {
+						let prev = platforms[platforms.length - 1];
+						platforms.splice(i, 1);
+						platforms.push(generatePlatform(prev.x, prev.y));
+					}
+
+					let dx = platform.x + platform.width / 2 - player.x;
+					let dy = platform.y + platform.height / 2 - player.y;
+					let distance = Math.sqrt(dx * dx + dy * dy);
+					let opacity = Math.min(
+						1,
+						Math.max(0, (400 - distance) / 400)
+					);
+					ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+					ctx.fillRect(
+						platform.x - cameraX,
+						platform.y,
+						platform.width,
+						platform.height
+					);
+
+					if (
+						player.y + player.height >= platform.y &&
+						player.y + player.height - player.dy <= platform.y &&
+						player.x + player.width > platform.x &&
+						player.x < platform.x + platform.width
+					) {
+						player.y = platform.y - player.height;
+						player.dy = 0;
+						player.onGround = true;
+						lastPlatform = platform;
+
+						if (platform.passed == false) {
+							score++;
+							platform.passed = true;
+						}
+
+						if (!platform.fallTimer) {
+							platform.fallTimer = setTimeout(() => {
+								if (platform.x != 50) {
+									platform.falling = true;
+									platform.fallVelocity = 0;
+								}
+							}, 1000);
+						}
+					}
+					if (platform.falling) {
+						platform.fallVelocity += 0.3;
+						platform.y += platform.fallVelocity;
+					}
+				}
+
+				if (!player.onGround) {
+					platforms.forEach((platform) => {
+						if (platform.fallTimer && !platform.falling) {
+							clearTimeout(platform.fallTimer);
+							platform.fallTimer = null;
+							platform.falling = true;
+						}
+					});
+				}
+
+				if (player.y > canvas.height + 500) {
+					alert("Game Over! Score: " + score);
+					resetGame();
+				}
+
+				cameraX = player.x - canvas.width / 4;
+
+				// Lantern
+				ctx.fillStyle = "white";
+				ctx.fillRect(
+					player.x - cameraX,
+					player.y,
+					player.width,
+					player.height
+				);
+
+				// Bottom black rectangle
+				ctx.fillStyle = "black";
+				ctx.fillRect(
+					player.x - cameraX,
+					player.y + player.height - 5,
+					player.width,
+					5
+				);
+
+				// Top black rectangle
+				ctx.fillRect(
+					player.x - cameraX + player.width * 0.15,
+					player.y - 5,
+					player.width * 0.7,
+					5
+				);
+
+				// Handle
+				ctx.beginPath();
+				ctx.arc(
+					player.x - cameraX + player.width / 2,
+					player.y - 8,
+					5,
+					0,
+					Math.PI * 2
+				);
+				ctx.fill();
+				document.getElementById("score").innerText = "Score: " + score;
+
+				requestAnimationFrame(gameLoop);
+			}
+
+			resetGame();
+			gameLoop();
+		</script>
+	</body>
+</html>
